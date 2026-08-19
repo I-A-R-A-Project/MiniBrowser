@@ -23,11 +23,16 @@ from dialogs import ListDialog, DownloadsDialog, SettingsDialog, HistoryDialog
 from new_tab_page import render_new_tab_page
 from offline_games import OfflineGameDownloader
 from web_common import local_viewer
+from web_common.pdf_tab import PdfTab
 from web_common.navbar import BasicNavbar, address_to_url, save_web_page
 from web_common.downloader_handoff import entry_from_url, launch_downloader
 from web_common.json_store import SidebarAppsStore, GamesStore
-from web_common.pdf_tab import PdfTab
-from web_common.session import load_tab_session, save_tab_session
+from web_common.session import (
+    is_navigation_title,
+    load_tab_session,
+    restore_tab_metadata,
+    save_tab_session,
+)
 from web_common.sidebar import SidebarRail, AppPanelOverlay, SidebarContainer
 from web_common.video_tab import VideoTab
 from web_common.web_profiles import build_web_profile
@@ -164,7 +169,7 @@ class MainWindow(QMainWindow):
         navbar.addAction(self.bookmark_action)
         
         # Agregar botones especificos de Browser
-        bookmarks_action = QAction("🔖", navbar)
+        bookmarks_action = QAction("🌟​", navbar)
         bookmarks_action.setToolTip("Marcadores")
         bookmarks_action.triggered.connect(self.show_bookmarks)
         navbar.addAction(bookmarks_action)
@@ -184,20 +189,12 @@ class MainWindow(QMainWindow):
         downloads_action.triggered.connect(self.show_downloads)
         navbar.addAction(downloads_action)
 
-        sidebar_toggle = QAction("▥", navbar)
+        sidebar_toggle = QAction("🚀​", navbar)
         sidebar_toggle.setToolTip("Mostrar/ocultar barra lateral")
         sidebar_toggle.setCheckable(True)
         sidebar_toggle.setChecked(True)
         sidebar_toggle.toggled.connect(self.toggle_sidebar_visibility)
         navbar.addAction(sidebar_toggle)
-
-        zoom_in = QAction("🔎+", navbar)
-        zoom_in.triggered.connect(lambda: self.adjust_zoom(0.1))
-        navbar.addAction(zoom_in)
-
-        zoom_out = QAction("🔎-", navbar)
-        zoom_out.triggered.connect(lambda: self.adjust_zoom(-0.1))
-        navbar.addAction(zoom_out)
 
         settings_action = QAction("⚙", navbar)
         settings_action.setToolTip("Ajustes y personalizaciones")
@@ -257,11 +254,13 @@ class MainWindow(QMainWindow):
             if url.startswith("file://"):
                 local_path = QUrl(url).toLocalFile()
                 ext = os.path.splitext(local_path)[1].lower()
-                if ext == ".pdf" or ext in VIDEO_EXTS:
+                if ext in VIDEO_EXTS:
                     self.open_path_in_new_tab(local_path)
                     opened += 1
                     continue
-            self.new_tab(url)
+            tab = self.new_tab("about:blank")
+            restore_tab_metadata(self.tabs, self.tabs.indexOf(tab), entry)
+            tab.setUrl(QUrl(url))
             opened += 1
 
         if not opened:
@@ -291,6 +290,12 @@ class MainWindow(QMainWindow):
     def update_tab_title(self, tab, title):
         index = self.tabs.indexOf(tab)
         if index != -1:
+            session_title = tab.property("_session_title")
+            if is_navigation_title(title) and session_title:
+                self.tabs.setTabText(index, session_title)
+                return
+            if not is_navigation_title(title):
+                tab.setProperty("_session_title", "")
             short = (title[:22] + "…") if len(title) > 22 else title
             text = short or "Nueva pestaña"
             if hasattr(tab, "page") and tab.page().isAudioMuted():
@@ -383,6 +388,9 @@ class MainWindow(QMainWindow):
         tab = self.new_tab("about:blank")
         request.openIn(tab.page())
 
+    def handle_new_tab_request(self):
+        return self.new_tab("about:blank").page()
+
     # -- barra de direcciones -----------------------------------------------
     def update_address_bar(self, tab, qurl: QUrl):
         if tab != self.current_tab():
@@ -444,9 +452,6 @@ class MainWindow(QMainWindow):
         reproducir el archivo."""
         ext = os.path.splitext(local_path)[1].lower()
         if ext == ".pdf":
-            # El PDF necesita un visor propio (QtPdf), así que se abre en
-            # una pestaña nueva y la pestaña que intentó navegar se deja
-            # tal cual estaba.
             self.open_pdf_tab(local_path)
             return
         if ext in VIDEO_EXTS:
@@ -456,17 +461,6 @@ class MainWindow(QMainWindow):
             self.open_video_tab(local_path)
             return
         self._open_local_target(tab, local_path)
-
-    def open_pdf_tab(self, path):
-        """Abre un PDF en una pestaña propia con el visor nativo QtPdf."""
-        tab = PdfTab(path, self)
-        title = os.path.basename(path)
-        short = (title[:22] + "…") if len(title) > 22 else title
-        index = self.tabs.addTab(tab, short or "PDF")
-        self.tabs.setCurrentIndex(index)
-        file_url = tab.url().toString()
-        self.db.add_history(file_url, title)
-        return tab
 
     def open_video_tab(self, path):
         """Abre un video local en una pestaña propia con reproductor
@@ -481,6 +475,13 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentIndex(index)
         file_url = tab.url().toString()
         self.db.add_history(file_url, title)
+        return tab
+
+    def open_pdf_tab(self, path):
+        tab = PdfTab(path, self)
+        title = os.path.basename(path)
+        index = self.tabs.addTab(tab, title[:22] or "PDF")
+        self.tabs.setCurrentIndex(index)
         return tab
 
     def _open_local_target(self, tab, local_path):
@@ -533,11 +534,6 @@ class MainWindow(QMainWindow):
 
         # Carpetas, .txt, .html, imágenes, etc.
         tab.setUrl(QUrl.fromLocalFile(local_path))
-
-    # -- zoom -----------------------------------------------------------------
-    def adjust_zoom(self, delta):
-        tab = self.current_tab()
-        tab.setZoomFactor(max(0.25, min(3.0, tab.zoomFactor() + delta)))
 
     # -- marcadores -----------------------------------------------------------
     def toggle_bookmark(self):
@@ -664,6 +660,3 @@ class MainWindow(QMainWindow):
         dialog.exec()
         self.script_manager.reload()
         self.refresh_sidebar()
-
-
-

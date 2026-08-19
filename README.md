@@ -19,8 +19,8 @@ Navegador de escritorio hecho con `PyQt6` y `QtWebEngine`, con pestañas, histor
 
 ## Entrada principal
 
-- `browser.py`: arranque de la aplicación.
-- `main_window.py`: ventana principal y coordinación de pestañas, barra lateral, historial y descargas.
+- `main.py`: arranque de la aplicación.
+- `window.py`: ventana principal y coordinación de pestañas, barra lateral, historial y descargas.
 
 ## Instalación
 

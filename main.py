@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PyQt6.QtWidgets import QApplication
 
 from config import APP_NAME
-from main_window import MainWindow
+from window import MainWindow
 
 
 def main():
