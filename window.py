@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 from PyQt6.QtWidgets import (
     QMainWindow, QTabWidget, QToolBar, QLineEdit, QFileDialog, QWidget,
@@ -35,6 +36,7 @@ from web_common.session import (
 )
 from web_common.sidebar import SidebarRail, AppPanelOverlay, SidebarContainer
 from web_common.video_tab import VideoTab
+from web_common import folder_viewer
 from web_common.web_profiles import build_web_profile
 
 
@@ -462,6 +464,12 @@ class MainWindow(QMainWindow):
             return
         self._open_local_target(tab, local_path)
 
+    def render_folder_view(self, page, folder_path):
+        folder_viewer.render_folder_view(page, folder_path)
+
+    def render_file_view(self, page, file_path):
+        folder_viewer.render_file_view(page, file_path)
+
     def open_video_tab(self, path):
         """Abre un video local en una pestaña propia con reproductor
         nativo QtMultimedia. Se usa en vez del <video> HTML5 de Chromium
@@ -492,14 +500,15 @@ class MainWindow(QMainWindow):
         .txt, .html, imágenes, etc.) se lo dejamos directamente a
         Chromium."""
         ext = os.path.splitext(local_path)[1].lower()
+        cache_dir = Path.home() / ".minibrowser" / "archives_cache"
         try:
             if ext == ".zip":
-                dest = local_viewer.extract_zip(local_path)
+                dest = local_viewer.extract_zip(local_path, cache_dir)
                 tab.setUrl(QUrl.fromLocalFile(dest))
                 return
 
             if ext == ".7z":
-                dest = local_viewer.extract_7z(local_path)
+                dest = local_viewer.extract_7z(local_path, cache_dir)
                 if dest is None:
                     tab.page().setHtml(
                         local_viewer.render_missing_dependency(local_path, "py7zr"),
@@ -510,19 +519,22 @@ class MainWindow(QMainWindow):
                 return
 
             if ext == ".rar":
-                try:
-                    html = local_viewer.render_rar_listing(local_path)
-                except ImportError:
-                    html = local_viewer.render_missing_dependency(
-                        local_path, "rarfile",
-                        "Además necesitás tener instalado `unrar` o `unar` en el sistema "
-                        "para que rarfile pueda leer el archivo.",
-                    )
-                tab.page().setHtml(html, QUrl.fromLocalFile(local_path))
+                dest = local_viewer.extract_rar(local_path, cache_dir)
+                if dest:
+                    tab.setUrl(QUrl.fromLocalFile(dest))
+                    return
+                tab.page().setHtml(
+                    local_viewer.render_error(
+                        local_path,
+                        "No se pudo extraer. Instalá 7-Zip o WinRAR, "
+                        "o configurá 7z/unrar/unar en el PATH.",
+                    ),
+                    QUrl.fromLocalFile(local_path),
+                )
                 return
 
             if ext == ".epub":
-                target = local_viewer.extract_epub_root(local_path)
+                target = local_viewer.extract_epub_root(local_path, cache_dir)
                 tab.setUrl(QUrl.fromLocalFile(target))
                 return
         except Exception as e:

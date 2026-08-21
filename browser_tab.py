@@ -14,6 +14,8 @@ class BrowserTab(UnifiedWebTab):
             parent_window=main_window,
             script_manager=script_manager,
             special_local_handler=main_window.handle_special_local_file,
+            folder_view_handler=main_window.render_folder_view,
+            file_view_handler=main_window.render_file_view,
             new_tab_handler=main_window.handle_new_tab_request,
             new_window_handler=main_window.handle_new_window_request,
             url_changed_handler=self._handle_url_changed,
