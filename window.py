@@ -3,13 +3,13 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import (
     QMainWindow, QTabWidget, QToolBar, QLineEdit, QFileDialog, QWidget,
-    QApplication, QMessageBox, QMenu,
+    QApplication, QMessageBox,
 )
 from PyQt6.QtGui import QAction, QKeySequence, QShortcut
 from PyQt6.QtWebEngineCore import (
     QWebEngineProfile, QWebEngineSettings, QWebEngineDownloadRequest
 )
-from PyQt6.QtCore import QStandardPaths, QUrl, Qt
+from PyQt6.QtCore import QStandardPaths, QTimer, QUrl, Qt
 
 from config import (
     APP_NAME, USERSCRIPTS_DIR, DB_PATH, SESSION_FILE, PROFILE_STORAGE,
@@ -24,7 +24,6 @@ from dialogs import ListDialog, DownloadsDialog, SettingsDialog, HistoryDialog
 from new_tab_page import render_new_tab_page
 from offline_games import OfflineGameDownloader
 from web_common import local_viewer
-from web_common.pdf_tab import PdfTab
 from web_common.navbar import BasicNavbar, address_to_url, save_web_page
 from web_common.downloader_handoff import entry_from_url, launch_downloader
 from web_common.json_store import SidebarAppsStore, GamesStore
@@ -35,6 +34,8 @@ from web_common.session import (
     save_tab_session,
 )
 from web_common.sidebar import SidebarRail, AppPanelOverlay, SidebarContainer
+from web_common.tabs import install_tab_context_menu
+from web_common.media_tabs import open_video_tab as add_video_tab
 from web_common.video_tab import VideoTab
 from web_common import folder_viewer
 from web_common.web_profiles import build_web_profile
@@ -72,9 +73,13 @@ class MainWindow(QMainWindow):
         self.tabs.currentChanged.connect(self._on_current_tab_changed)
         self.tabs.tabBarClicked.connect(self._on_tab_bar_clicked)
         self.tabs.tabBar().tabMoved.connect(self._on_tab_moved)
-        self.tabs.tabBar().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.tabs.tabBar().customContextMenuRequested.connect(self._show_tab_context_menu)
         self._setup_plus_tab()
+        install_tab_context_menu(
+            self.tabs,
+            close_tab=self.close_tab,
+            plus_widget=self.plus_widget,
+            toggle_mute=self._toggle_mute_tab,
+        )
 
         # Riel de íconos: FIJO, docked, parte del layout normal (no flota).
         # Cada app puede tener su propio ícono (elegido por el usuario desde
@@ -209,11 +214,42 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+T"), self, activated=lambda: self.new_tab())
         QShortcut(QKeySequence("Ctrl+W"), self, activated=lambda: self.close_tab(self.tabs.currentIndex()))
         QShortcut(QKeySequence("Ctrl+L"), self, activated=lambda: self.address_bar.setFocus())
+        QShortcut(QKeySequence("Ctrl+Shift+R"), self, activated=self.hard_reload_current)
         QShortcut(QKeySequence("Ctrl+D"), self, activated=self.toggle_bookmark)
         QShortcut(QKeySequence("Ctrl+H"), self, activated=self.show_history)
         QShortcut(QKeySequence("Ctrl+J"), self, activated=self.show_downloads)
         QShortcut(QKeySequence("Ctrl+O"), self, activated=self.open_local_file)
         QShortcut(QKeySequence("Ctrl+Shift+O"), self, activated=self.open_local_folder)
+
+    def hard_reload_current(self):
+        tab = self.current_tab()
+        if tab is None:
+            return
+
+        url = tab.url()
+        tab.page().profile().clearHttpCache()
+        tab.page().runJavaScript(
+            """
+            (async () => {
+                if (navigator.serviceWorker) {
+                    const registrations = await navigator.serviceWorker.getRegistrations();
+                    await Promise.all(registrations.map(registration => registration.unregister()));
+                }
+                if (window.caches) {
+                    const cacheNames = await caches.keys();
+                    await Promise.all(cacheNames.map(cacheName => caches.delete(cacheName)));
+                }
+                return true;
+            })();
+            """,
+            lambda _result: self._reload_after_cache_clear(tab, url),
+        )
+
+    def _reload_after_cache_clear(self, tab, url):
+        if tab is None or url.isEmpty():
+            return
+        tab.setUrl(QUrl("about:blank"))
+        QTimer.singleShot(250, lambda: tab.setUrl(url))
 
     # -- pestañas ---------------------------------------------------------
     def current_tab(self) -> BrowserTab:
@@ -333,34 +369,6 @@ class MainWindow(QMainWindow):
         if plus_index != last:
             self.tabs.tabBar().moveTab(plus_index, last)
 
-    # -- click derecho en pestaña: enmudecer / cerrar a la derecha o izquierda --
-    def _show_tab_context_menu(self, pos):
-        bar = self.tabs.tabBar()
-        index = bar.tabAt(pos)
-        if index == -1 or self.tabs.widget(index) is self.plus_widget:
-            return
-
-        tab = self.tabs.widget(index)
-        last_real_index = self.tabs.indexOf(self.plus_widget) - 1
-
-        menu = QMenu(self)
-
-        if hasattr(tab, "page"):
-            muted = tab.page().isAudioMuted()
-            mute_action = menu.addAction("Activar sonido" if muted else "Enmudecer pestaña")
-            mute_action.triggered.connect(lambda: self._toggle_mute_tab(index))
-            menu.addSeparator()
-
-        close_right_action = menu.addAction("Cerrar pestañas a la derecha")
-        close_right_action.setEnabled(index < last_real_index)
-        close_right_action.triggered.connect(lambda: self._close_tabs_to_right(index))
-
-        close_left_action = menu.addAction("Cerrar pestañas a la izquierda")
-        close_left_action.setEnabled(index > 0)
-        close_left_action.triggered.connect(lambda: self._close_tabs_to_left(index))
-
-        menu.exec(bar.mapToGlobal(pos))
-
     def _toggle_mute_tab(self, index):
         tab = self.tabs.widget(index)
         if not hasattr(tab, "page"):
@@ -368,23 +376,6 @@ class MainWindow(QMainWindow):
         page = tab.page()
         page.setAudioMuted(not page.isAudioMuted())
         self.update_tab_title(tab, tab.title())
-
-    def _close_multiple_tabs(self, indices):
-        for i in sorted(indices, reverse=True):
-            widget = self.tabs.widget(i)
-            if widget is None or widget is self.plus_widget:
-                continue
-            self.tabs.removeTab(i)
-            widget.deleteLater()
-        if self.tabs.count() <= 1:
-            self.new_tab()
-
-    def _close_tabs_to_right(self, from_index):
-        last_real_index = self.tabs.indexOf(self.plus_widget) - 1
-        self._close_multiple_tabs(range(from_index + 1, last_real_index + 1))
-
-    def _close_tabs_to_left(self, from_index):
-        self._close_multiple_tabs(range(0, from_index))
 
     def handle_new_window_request(self, request):
         tab = self.new_tab("about:blank")
@@ -436,11 +427,13 @@ class MainWindow(QMainWindow):
         """Abre una ruta local (usada por el diálogo de Descargas y por los
         selectores de archivo/carpeta) en una pestaña nueva."""
         ext = os.path.splitext(path)[1].lower()
-        if ext == ".pdf":
-            self.open_pdf_tab(path)
-            return
         if ext in VIDEO_EXTS:
-            self.open_video_tab(path)
+            add_video_tab(
+                self.tabs, path, self, title_limit=22,
+                on_open=lambda tab, title: self.db.add_history(
+                    tab.url().toString(), title
+                ),
+            )
             return
         tab = self.new_tab("about:blank")
         tab.setUrl(QUrl.fromLocalFile(path))
@@ -453,14 +446,16 @@ class MainWindow(QMainWindow):
         trate como una descarga o se quede con el <video> HTML5 sin poder
         reproducir el archivo."""
         ext = os.path.splitext(local_path)[1].lower()
-        if ext == ".pdf":
-            self.open_pdf_tab(local_path)
-            return
         if ext in VIDEO_EXTS:
             # Igual que el PDF: el video necesita un reproductor propio
             # (QtMultimedia) porque el <video> HTML5 de QtWebEngine no
             # siempre trae codecs propietarios (H.264/AAC).
-            self.open_video_tab(local_path)
+            add_video_tab(
+                self.tabs, local_path, self, title_limit=22,
+                on_open=lambda tab, title: self.db.add_history(
+                    tab.url().toString(), title
+                ),
+            )
             return
         self._open_local_target(tab, local_path)
 
@@ -469,28 +464,6 @@ class MainWindow(QMainWindow):
 
     def render_file_view(self, page, file_path):
         folder_viewer.render_file_view(page, file_path)
-
-    def open_video_tab(self, path):
-        """Abre un video local en una pestaña propia con reproductor
-        nativo QtMultimedia. Se usa en vez del <video> HTML5 de Chromium
-        porque muchas builds de QtWebEngine no traen codecs propietarios
-        (H.264/AAC) y el video se queda con los controles trabados en
-        0:00 sin reproducir nada."""
-        tab = VideoTab(path, self)
-        title = os.path.basename(path)
-        short = (title[:22] + "…") if len(title) > 22 else title
-        index = self.tabs.addTab(tab, short or "Video")
-        self.tabs.setCurrentIndex(index)
-        file_url = tab.url().toString()
-        self.db.add_history(file_url, title)
-        return tab
-
-    def open_pdf_tab(self, path):
-        tab = PdfTab(path, self)
-        title = os.path.basename(path)
-        index = self.tabs.addTab(tab, title[:22] or "PDF")
-        self.tabs.setCurrentIndex(index)
-        return tab
 
     def _open_local_target(self, tab, local_path):
         """Decide cómo mostrar una ruta local que NO es un pdf ni un video.

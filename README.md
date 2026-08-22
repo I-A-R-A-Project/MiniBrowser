@@ -1,94 +1,108 @@
-# MiniBrowser
+# Browser (MiniBrowser)
 
-Navegador de escritorio hecho con `PyQt6` y `QtWebEngine`, con pestañas, historial, marcadores, descargas y soporte para contenido local.
+`Browser` es una aplicación de escritorio independiente basada en PyQt6 y
+QtWebEngine. Ofrece navegación web con pestañas, una barra lateral de
+aplicaciones, sesiones persistentes y herramientas para trabajar con archivos
+locales.
+
 
 ## Funciones
 
-- Pestañas navegables con barra de direcciones, atrás, adelante y recarga.
-- Marcadores y historial persistidos en `sqlite`.
-- Panel lateral fijo para apps ancladas, con panel flotante por app.
-- Userscripts estilo Tampermonkey cargados desde carpeta local.
-- Descargas administradas desde una ventana propia.
-- Visor nativo para `PDF`.
-- Reproductor nativo para video local.
-- Apertura de archivos locales especiales:
-  - `.zip` y `.7z` se extraen una sola vez y se navegan como carpeta.
-  - `.rar` se muestra como listado de solo lectura.
-  - `.epub` se abre en su primer capítulo cuando es posible.
-- Juegos guardados en JSON, incluyendo juegos online y juegos offline empaquetados como `.zip`.
-
-## Entrada principal
-
-- `main.py`: arranque de la aplicación.
-- `window.py`: ventana principal y coordinación de pestañas, barra lateral, historial y descargas.
+- Pestañas movibles y cerrables, pestaña nueva, ventanas emergentes con
+  pestañas y menú contextual para silenciar o cerrar grupos de pestañas.
+- Navegación atrás, adelante, recarga, recarga completa y barra de
+  direcciones con búsqueda.
+- Sesión persistente de pestañas y perfil aislado de QtWebEngine.
+- Historial y marcadores almacenados en SQLite.
+- Panel lateral para aplicaciones y juegos configurables.
+- Userscripts locales con metadatos `@name`, `@match` y `@run-at`.
+- Descargas enviadas al Downloader cuando corresponde y panel de estado de
+  descargas del navegador.
+- Visor PDF integrado de Chromium mediante `PdfViewerEnabled` y
+  `PluginsEnabled`.
+- Reproductor QtMultimedia para videos locales.
+- Carpetas y archivos locales, incluyendo edición de archivos de texto.
+- Extracción y navegación de `.zip`, `.7z`, `.rar` y `.epub`. Los archivos
+  `.rar` pueden requerir WinRAR, UnRAR, 7-Zip o `unar` instalado en el sistema.
+- Juegos online y juegos offline descargados como `.zip`, con caché local.
 
 ## Instalación
 
-Requiere Python 3 y `PyQt6`.
-
-Dependencias base:
+Se requiere Python 3.10 o superior:
 
 ```bash
-pip install PyQt6
+python -m pip install PyQt6 PyQt6-WebEngine
 ```
 
-Dependencias opcionales para funciones extra:
+Dependencias opcionales:
 
 ```bash
-pip install certifi py7zr rarfile
+python -m pip install certifi py7zr rarfile
 ```
 
-Notas:
-
-- `certifi` mejora la validación SSL para descargas de juegos offline.
-- `py7zr` habilita la extracción de `.7z`.
-- `rarfile` habilita la vista de listado de `.rar`.
-- Para leer `.rar` normalmente también hace falta `unrar` o `unar` instalado en el sistema.
+`py7zr` habilita un fallback Python para `.7z`; `rarfile` agrega un fallback
+para `.rar`. 7-Zip no se instala con `pip`: es una aplicación externa.
 
 ## Ejecución
 
+Desde esta carpeta:
+
 ```bash
-python browser.py
+python main.py
 ```
 
-## Datos locales
+`main.py` agrega automáticamente la raíz de IARA al `sys.path`, por lo que
+puede importar los módulos compartidos de `web_common`. No se debe convertir
+esta aplicación en un paquete ni cambiar ese punto de entrada.
 
-La aplicación guarda su estado en `~/.minibrowser`:
+## Datos y configuración
 
-- `browser.db`: historial y marcadores.
-- `profile/`: perfil persistente de `QtWebEngine` y cookies.
-- `userscripts/`: scripts de usuario.
-- `sidebar_apps.json`: apps de la barra lateral.
-- `games.json`: lista de juegos.
-- `icons/`: íconos importados para apps.
-- `archivos_extraidos/`: caché de archivos comprimidos abiertos.
-- `games_cache/`: caché de juegos offline descargados.
+El estado se guarda en `%USERPROFILE%\.minibrowser` (en Windows):
+
+| Ruta | Contenido |
+| --- | --- |
+| `browser.db` | Historial y marcadores |
+| `profile\` | Cookies, almacenamiento y caché persistente de QtWebEngine |
+| `session.json` | Pestañas restaurables |
+| `userscripts\` | Userscripts locales |
+| `sidebar_apps.json` | Aplicaciones de la barra lateral |
+| `games.json` | Juegos configurados |
+| `archivos_extraidos\` | Caché de archivos comprimidos |
+| `games_cache\` | Juegos offline descargados |
+| `icons\` | Íconos importados para aplicaciones |
+
+Estas rutas se crean desde `config.py`. No deben incluirse en commits.
 
 ## Userscripts
 
-Los scripts se leen desde `~/.minibrowser/userscripts` y usan comentarios tipo:
+Los scripts se colocan en `%USERPROFILE%\.minibrowser\userscripts\`:
 
-```js
+```javascript
 // @name    Mi script
 // @match   *://*.dominio.com/*
 // @run-at  document-idle
 ```
 
-La carpeta incluye un ejemplo generado automáticamente: `ejemplo.js`.
+El navegador genera un ejemplo si la carpeta todavía no contiene uno.
 
 ## Estructura
 
-- `browser_tab.py`: pestañas web y bloqueo de navegación local especial.
-- `pdf_tab.py`: visor PDF.
-- `video_tab.py`: reproductor de video.
-- `sidebar.py`: barra lateral y panel flotante.
+- `main.py`: punto de entrada de la aplicación.
+- `window.py`: ventana principal, pestañas, barra lateral, sesión y acciones.
+- `browser_tab.py`: pestaña web y coordinación con handlers locales.
+- `database.py`: historial y marcadores SQLite.
 - `dialogs.py`: diálogos de historial, marcadores, descargas y ajustes.
-- `database.py`: persistencia de historial y marcadores.
-- `json_store.py`: listas JSON para apps y juegos.
-- `local_viewer.py`: extracción y renderizado de archivos locales.
-- `offline_games.py`: descarga y descompresión de juegos offline.
-- `downloads.py`: administración de descargas.
+- `downloads.py`: gestión de descargas de QtWebEngine.
+- `local_viewer.py`: extracción y renderizado de contenido local.
+- `offline_games.py`: descarga y extracción de juegos offline.
+- `new_tab_page.py`: página HTML de nueva pestaña.
 - `userscripts.py`: carga e inyección de userscripts.
+- `web_common\`: pestañas, perfiles, visores, sesiones y utilidades compartidas
+  con IA y ArtBrowser.
+
+Los cambios en `web_common` pueden afectar a las tres aplicaciones; los
+cambios propios de Browser deben mantenerse compatibles con su ejecución
+directa mediante `python main.py`.
 
 ## Licencia
 
