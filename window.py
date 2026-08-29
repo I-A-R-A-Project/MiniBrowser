@@ -37,7 +37,9 @@ from web_common.session import (
     save_tab_session,
 )
 from web_common.sidebar import SidebarRail, AppPanelOverlay, SidebarContainer
-from web_common.tabs import ContextTabBar, install_tab_context_menu
+from web_common.tabs import (
+    ContextTabBar, add_plus_tab, install_tab_context_menu, keep_plus_tab_last,
+)
 from web_common.media_tabs import open_video_tab as add_video_tab
 from web_common.video_tab import VideoTab
 from web_common.epub_tab import EpubTab
@@ -379,11 +381,7 @@ class MainWindow(QMainWindow):
         self.update_address_bar(tab, tab.url())
 
     def _setup_plus_tab(self):
-        self.plus_widget = QWidget()
-        index = self.tabs.addTab(self.plus_widget, "+")
-        bar = self.tabs.tabBar()
-        bar.setTabButton(index, bar.ButtonPosition.RightSide, None)
-        bar.setTabButton(index, bar.ButtonPosition.LeftSide, None)
+        self.plus_widget = add_plus_tab(self.tabs)
 
     def _on_tab_bar_clicked(self, index):
         if self.tabs.widget(index) is self.plus_widget:
@@ -391,10 +389,7 @@ class MainWindow(QMainWindow):
 
     def _on_tab_moved(self, from_index, to_index):
         # Evita que arrastrando pestañas la "+" termine en el medio.
-        plus_index = self.tabs.indexOf(self.plus_widget)
-        last = self.tabs.count() - 1
-        if plus_index != last:
-            self.tabs.tabBar().moveTab(plus_index, last)
+        keep_plus_tab_last(self.tabs, self.plus_widget)
 
     def _toggle_mute_tab(self, index):
         tab = self.tabs.widget(index)
