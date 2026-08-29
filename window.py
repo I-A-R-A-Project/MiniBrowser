@@ -77,11 +77,11 @@ class MainWindow(QMainWindow):
         self.tabs.setTabBar(ContextTabBar(self.tabs))
         self.tabs.setTabsClosable(True)
         self.tabs.setMovable(True)
+        self._setup_plus_tab()
         self.tabs.tabCloseRequested.connect(self.close_tab)
         self.tabs.currentChanged.connect(self._on_current_tab_changed)
         self.tabs.tabBarClicked.connect(self._on_tab_bar_clicked)
         self.tabs.tabBar().tabMoved.connect(self._on_tab_moved)
-        self._setup_plus_tab()
         install_tab_context_menu(
             self.tabs,
             close_tab=self.close_tab,
