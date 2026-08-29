@@ -30,7 +30,6 @@ from web_common.downloader_handoff import (
 )
 from web_common.json_store import SidebarAppsStore, GamesStore
 from web_common.session import (
-    is_navigation_title,
     load_tab_session,
     restore_tab_metadata,
     SessionAutoSaver,
@@ -39,6 +38,7 @@ from web_common.session import (
 from web_common.sidebar import SidebarRail, AppPanelOverlay, SidebarContainer
 from web_common.tabs import (
     ContextTabBar, add_plus_tab, install_tab_context_menu, keep_plus_tab_last,
+    update_tab_icon, update_tab_title,
 )
 from web_common.media_tabs import open_video_tab as add_video_tab
 from web_common.video_tab import VideoTab
@@ -355,24 +355,12 @@ class MainWindow(QMainWindow):
         self.session_autosaver.schedule()
 
     def update_tab_title(self, tab, title):
-        index = self.tabs.indexOf(tab)
-        if index != -1:
-            session_title = tab.property("_session_title")
-            if is_navigation_title(title) and session_title:
-                self.tabs.setTabText(index, session_title)
-                return
-            if not is_navigation_title(title):
-                tab.setProperty("_session_title", "")
-            short = (title[:22] + "…") if len(title) > 22 else title
-            text = short or "Nueva pestaña"
-            if hasattr(tab, "page") and tab.page().isAudioMuted():
-                text = "🔇 " + text
-            self.tabs.setTabText(index, text)
+        update_tab_title(
+            self.tabs, tab, title, title_limit=22, muted_prefix="🔇 "
+        )
 
     def update_tab_icon(self, tab, icon):
-        index = self.tabs.indexOf(tab)
-        if index != -1:
-            self.tabs.setTabIcon(index, icon)
+        update_tab_icon(self.tabs, tab, icon)
 
     def _on_current_tab_changed(self, index):
         tab = self.tabs.widget(index)
