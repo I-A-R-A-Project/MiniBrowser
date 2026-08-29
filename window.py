@@ -25,18 +25,22 @@ from new_tab_page import render_new_tab_page
 from offline_games import OfflineGameDownloader
 from web_common import local_viewer
 from web_common.navbar import BasicNavbar, address_to_url, save_web_page
-from web_common.downloader_handoff import entry_from_url, launch_downloader
+from web_common.downloader_handoff import (
+    entry_from_url, handoff_url_to_downloader, launch_downloader,
+)
 from web_common.json_store import SidebarAppsStore, GamesStore
 from web_common.session import (
     is_navigation_title,
     load_tab_session,
     restore_tab_metadata,
+    SessionAutoSaver,
     save_tab_session,
 )
 from web_common.sidebar import SidebarRail, AppPanelOverlay, SidebarContainer
-from web_common.tabs import install_tab_context_menu
+from web_common.tabs import ContextTabBar, install_tab_context_menu
 from web_common.media_tabs import open_video_tab as add_video_tab
 from web_common.video_tab import VideoTab
+from web_common.epub_tab import EpubTab
 from web_common import folder_viewer
 from web_common.web_profiles import build_web_profile
 
@@ -58,6 +62,7 @@ class MainWindow(QMainWindow):
         self.script_manager.create_example_script()
         self.script_manager.reload()
         self.download_manager = DownloadManager()
+        self.session_autosaver = SessionAutoSaver(self._save_session)
         # Descargas de juegos offline (.zip) en curso: game_id -> OfflineGameDownloader.
         # Se guarda la referencia para que el QThread no se destruya a mitad
         # de la descarga y para no permitir dos descargas simultáneas del
@@ -67,6 +72,7 @@ class MainWindow(QMainWindow):
         self.profile = self._build_profile()
 
         self.tabs = QTabWidget()
+        self.tabs.setTabBar(ContextTabBar(self.tabs))
         self.tabs.setTabsClosable(True)
         self.tabs.setMovable(True)
         self.tabs.tabCloseRequested.connect(self.close_tab)
@@ -79,6 +85,7 @@ class MainWindow(QMainWindow):
             close_tab=self.close_tab,
             plus_widget=self.plus_widget,
             toggle_mute=self._toggle_mute_tab,
+            direct_right_click=True,
         )
 
         # Riel de íconos: FIJO, docked, parte del layout normal (no flota).
@@ -169,6 +176,11 @@ class MainWindow(QMainWindow):
 
         # Guardar referencia a address_bar
         self.address_bar = navbar.address_bar
+
+        send_action = QAction("⬇", navbar)
+        send_action.setToolTip("Enviar URL actual al Downloader")
+        send_action.triggered.connect(self.send_current_url_to_downloader)
+        navbar.addAction(send_action)
         
         # Agregar bookmark ☆ entre direccion y otros botones
         self.bookmark_action = QAction("☆", navbar)
@@ -209,6 +221,20 @@ class MainWindow(QMainWindow):
         navbar.addAction(settings_action)
         
         self.addToolBar(navbar)
+
+    def send_current_url_to_downloader(self):
+        tab = self.current_tab()
+        url = tab.url().toString() if tab else ""
+        download_dir = QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.DownloadLocation
+        )
+        handoff_url_to_downloader(
+            url,
+            __file__,
+            path=download_dir,
+            title=tab.title() if tab else "",
+            status_callback=self.statusBar().showMessage,
+        )
 
     def _build_shortcuts(self):
         QShortcut(QKeySequence("Ctrl+T"), self, activated=lambda: self.new_tab())
@@ -266,6 +292,7 @@ class MainWindow(QMainWindow):
             tab.setUrl(QUrl(url))
         else:
             self._load_new_tab_page(tab)
+        self.session_autosaver.schedule()
         return tab
 
     def _load_new_tab_page(self, tab):
@@ -321,9 +348,9 @@ class MainWindow(QMainWindow):
         widget.deleteLater()
         if self.tabs.count() <= 1:
             self.new_tab()
-            return
-        if was_current:
+        elif was_current:
             self.tabs.setCurrentIndex(max(0, index - 1))
+        self.session_autosaver.schedule()
 
     def update_tab_title(self, tab, title):
         index = self.tabs.indexOf(tab)
@@ -472,53 +499,26 @@ class MainWindow(QMainWindow):
         los .epub se abren en su primer capítulo. El resto (carpetas,
         .txt, .html, imágenes, etc.) se lo dejamos directamente a
         Chromium."""
-        ext = os.path.splitext(local_path)[1].lower()
         cache_dir = Path.home() / ".minibrowser" / "archives_cache"
-        try:
-            if ext == ".zip":
-                dest = local_viewer.extract_zip(local_path, cache_dir)
-                tab.setUrl(QUrl.fromLocalFile(dest))
-                return
+        local_viewer.open_local_target(
+            tab,
+            local_path,
+            cache_dir,
+            epub_handler=self._replace_tab_with_epub,
+        )
 
-            if ext == ".7z":
-                dest = local_viewer.extract_7z(local_path, cache_dir)
-                if dest is None:
-                    tab.page().setHtml(
-                        local_viewer.render_missing_dependency(local_path, "py7zr"),
-                        QUrl.fromLocalFile(local_path),
-                    )
-                else:
-                    tab.setUrl(QUrl.fromLocalFile(dest))
-                return
-
-            if ext == ".rar":
-                dest = local_viewer.extract_rar(local_path, cache_dir)
-                if dest:
-                    tab.setUrl(QUrl.fromLocalFile(dest))
-                    return
-                tab.page().setHtml(
-                    local_viewer.render_error(
-                        local_path,
-                        "No se pudo extraer. Instalá 7-Zip o WinRAR, "
-                        "o configurá 7z/unrar/unar en el PATH.",
-                    ),
-                    QUrl.fromLocalFile(local_path),
-                )
-                return
-
-            if ext == ".epub":
-                target = local_viewer.extract_epub_root(local_path, cache_dir)
-                tab.setUrl(QUrl.fromLocalFile(target))
-                return
-        except Exception as e:
-            tab.page().setHtml(
-                local_viewer.render_error(local_path, f"Error al procesar el archivo: {e}"),
-                QUrl.fromLocalFile(local_path),
-            )
-            return
-
-        # Carpetas, .txt, .html, imágenes, etc.
-        tab.setUrl(QUrl.fromLocalFile(local_path))
+    def _replace_tab_with_epub(self, tab, local_path, cache_dir):
+        epub = EpubTab(
+            tab.page().profile(),
+            local_path,
+            cache_dir=cache_dir,
+            parent=self,
+        )
+        index = self.tabs.indexOf(tab)
+        self.tabs.removeTab(index)
+        self.tabs.insertTab(index, epub, epub.title())
+        self.tabs.setCurrentIndex(index)
+        tab.deleteLater()
 
     # -- marcadores -----------------------------------------------------------
     def toggle_bookmark(self):

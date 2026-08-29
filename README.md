@@ -18,6 +18,8 @@ locales.
 - Userscripts locales con metadatos `@name`, `@match` y `@run-at`.
 - Descargas enviadas al Downloader cuando corresponde y panel de estado de
   descargas del navegador.
+- Botón explícito para enviar URL actual al Downloader. No intercepta ni
+  redirige navegación automáticamente; Downloader intenta resolver URL.
 - Visor PDF integrado de Chromium mediante `PdfViewerEnabled` y
   `PluginsEnabled`.
 - Reproductor QtMultimedia para videos locales.
