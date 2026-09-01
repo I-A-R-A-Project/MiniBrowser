@@ -24,7 +24,7 @@ from dialogs import ListDialog, DownloadsDialog, SettingsDialog, HistoryDialog
 from new_tab_page import render_new_tab_page
 from offline_games import OfflineGameDownloader
 from web_common import local_viewer
-from web_common.navbar import BasicNavbar, address_to_url, save_web_page
+from web_common.navbar import BasicNavbar, address_to_url, bind_navigation, save_web_page
 from web_common.downloader_handoff import (
     entry_from_url, handoff_url_to_downloader, launch_downloader,
 )
@@ -165,15 +165,15 @@ class MainWindow(QMainWindow):
     # -- toolbar --------------------------------------------------------------
     def _build_toolbar(self):
         navbar = BasicNavbar(self)
-        navbar.on_back = lambda: self.current_tab().back()
-        navbar.on_forward = lambda: self.current_tab().forward()
-        navbar.on_reload = lambda: self.current_tab().reload()
-        navbar.on_stop = lambda: self.current_tab().stop()
-        navbar.on_address_bar_enter = self.navigate_to_address
-        navbar.on_save_page = lambda: save_web_page(
-            self.current_tab(),
-            target_dir=Path(__file__).resolve().parent / "saved_pages",
-            status_callback=self.statusBar().showMessage,
+        bind_navigation(
+            navbar,
+            self.current_tab,
+            address_handler=self.navigate_to_address,
+            save_handler=lambda: save_web_page(
+                self.current_tab(),
+                target_dir=Path(__file__).resolve().parent / "saved_pages",
+                status_callback=self.statusBar().showMessage,
+            ),
         )
 
         # Guardar referencia a address_bar
