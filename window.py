@@ -1,5 +1,8 @@
 import os
+import sys
+import json
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PyQt6.QtWidgets import (
     QMainWindow, QTabWidget, QToolBar, QLineEdit, QFileDialog, QWidget,
@@ -12,7 +15,7 @@ from PyQt6.QtWebEngineCore import (
 from PyQt6.QtCore import QStandardPaths, QTimer, QUrl, Qt
 
 from config import (
-    APP_NAME, USERSCRIPTS_DIR, DB_PATH, SESSION_FILE, PROFILE_STORAGE,
+    APP_NAME, USERSCRIPTS_DIR, DB_PATH, SESSION_FILE, ZOOM_FILE, PROFILE_STORAGE,
     SIDEBAR_APPS_FILE, GAMES_FILE, DEFAULT_SIDEBAR_APPS, DEFAULT_GAMES,
     GAMES_CACHE_DIR,
 )
@@ -24,7 +27,9 @@ from dialogs import ListDialog, DownloadsDialog, SettingsDialog, HistoryDialog
 from new_tab_page import render_new_tab_page
 from offline_games import OfflineGameDownloader
 from web_common import local_viewer
-from web_common.navbar import BasicNavbar, address_to_url, bind_navigation, save_web_page
+from web_common import folder_viewer
+from web_common.navbar import BasicNavbar, bind_navigation, save_web_page
+from web_common.navigation import navigate_view, open_plus_tab, sync_address_bar
 from web_common.downloader_handoff import (
     entry_from_url, handoff_url_to_downloader, launch_downloader,
 )
@@ -37,13 +42,14 @@ from web_common.session import (
 )
 from web_common.sidebar import SidebarRail, AppPanelOverlay, SidebarContainer
 from web_common.tabs import (
-    ContextTabBar, add_plus_tab, install_tab_context_menu, keep_plus_tab_last,
-    update_tab_icon, update_tab_title,
+    add_plus_tab, configure_tab_widget, prepare_tab_widget,
+    close_tab as close_shared_tab, update_tab_icon, update_tab_title,
 )
 from web_common.media_tabs import open_video_tab as add_video_tab
 from web_common.video_tab import VideoTab
 from web_common.epub_tab import EpubTab
 from web_common import folder_viewer
+from web_common.zoom import adjust_zoom, set_zoom
 from web_common.web_profiles import build_web_profile
 
 
@@ -70,22 +76,21 @@ class MainWindow(QMainWindow):
         # de la descarga y para no permitir dos descargas simultáneas del
         # mismo juego.
         self._active_game_downloads = {}
+        self.zoom_factor = self._load_zoom_factor()
 
         self.profile = self._build_profile()
 
         self.tabs = QTabWidget()
-        self.tabs.setTabBar(ContextTabBar(self.tabs))
-        self.tabs.setTabsClosable(True)
-        self.tabs.setMovable(True)
-        self._setup_plus_tab()
-        self.tabs.tabCloseRequested.connect(self.close_tab)
-        self.tabs.currentChanged.connect(self._on_current_tab_changed)
-        self.tabs.tabBarClicked.connect(self._on_tab_bar_clicked)
-        self.tabs.tabBar().tabMoved.connect(self._on_tab_moved)
-        install_tab_context_menu(
+        prepare_tab_widget(self.tabs)
+        self.plus_widget = add_plus_tab(self.tabs)
+        configure_tab_widget(
             self.tabs,
             close_tab=self.close_tab,
             plus_widget=self.plus_widget,
+            current_changed=self._on_current_tab_changed,
+            tab_bar_clicked=lambda index: open_plus_tab(
+                self.tabs, index, self.plus_widget, self.new_tab
+            ),
             toggle_mute=self._toggle_mute_tab,
             direct_right_click=True,
         )
@@ -140,6 +145,21 @@ class MainWindow(QMainWindow):
         )
         profile.downloadRequested.connect(self.on_download_requested)
         return profile
+
+    def _load_zoom_factor(self):
+        try:
+            with open(ZOOM_FILE, encoding="utf-8") as handle:
+                value = json.load(handle)
+            if isinstance(value, (int, float)) and 0.25 <= value <= 5.0:
+                return float(value)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            pass
+        return 1.0
+
+    def _persist_zoom(self, factor):
+        self.zoom_factor = factor
+        with open(ZOOM_FILE, "w", encoding="utf-8") as handle:
+            json.dump(factor, handle)
 
     # -- barra lateral --------------------------------------------------------
     def _on_sidebar_app_clicked(self, app):
@@ -248,6 +268,18 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+J"), self, activated=self.show_downloads)
         QShortcut(QKeySequence("Ctrl+O"), self, activated=self.open_local_file)
         QShortcut(QKeySequence("Ctrl+Shift+O"), self, activated=self.open_local_folder)
+        QShortcut(
+            QKeySequence("Ctrl+="), self,
+            activated=lambda: adjust_zoom(self.current_tab, 0.1, self._persist_zoom),
+        )
+        QShortcut(
+            QKeySequence("Ctrl+-"), self,
+            activated=lambda: adjust_zoom(self.current_tab, -0.1, self._persist_zoom),
+        )
+        QShortcut(
+            QKeySequence("Ctrl+0"), self,
+            activated=lambda: set_zoom(self.current_tab, 1.0, self._persist_zoom),
+        )
 
     def hard_reload_current(self):
         tab = self.current_tab()
@@ -287,6 +319,7 @@ class MainWindow(QMainWindow):
         """Si no se pasa url, se abre la página local de "nueva pestaña"
         (buscador + accesos rápidos a marcadores) en vez de una web fija."""
         tab = BrowserTab(self.profile, self.script_manager, self)
+        tab.setZoomFactor(self.zoom_factor)
         insert_at = self.tabs.indexOf(self.plus_widget)
         index = self.tabs.insertTab(insert_at, tab, "Nueva pestaña")
         self.tabs.setCurrentIndex(index)
@@ -340,44 +373,26 @@ class MainWindow(QMainWindow):
         return True
 
     def close_tab(self, index):
-        if self.tabs.widget(index) is self.plus_widget:
-            return
-        was_current = index == self.tabs.currentIndex()
-        widget = self.tabs.widget(index)
-        self.tabs.removeTab(index)
-        if isinstance(widget, VideoTab):
-            widget.stop()
-        widget.deleteLater()
-        if self.tabs.count() <= 1:
-            self.new_tab()
-        elif was_current:
-            self.tabs.setCurrentIndex(max(0, index - 1))
-        self.session_autosaver.schedule()
-
-    def update_tab_title(self, tab, title):
-        update_tab_title(
-            self.tabs, tab, title, title_limit=22, muted_prefix="🔇 "
+        close_shared_tab(
+            self.tabs,
+            index,
+            self.plus_widget,
+            before_delete=lambda widget: (
+                widget.stop() if isinstance(widget, VideoTab) else None
+            ),
+            ensure_tab=self.new_tab,
         )
-
-    def update_tab_icon(self, tab, icon):
-        update_tab_icon(self.tabs, tab, icon)
+        self.session_autosaver.schedule()
 
     def _on_current_tab_changed(self, index):
         tab = self.tabs.widget(index)
         if tab is None or tab is self.plus_widget:
             return
-        self.update_address_bar(tab, tab.url())
-
-    def _setup_plus_tab(self):
-        self.plus_widget = add_plus_tab(self.tabs)
-
-    def _on_tab_bar_clicked(self, index):
-        if self.tabs.widget(index) is self.plus_widget:
-            self.new_tab()
-
-    def _on_tab_moved(self, from_index, to_index):
-        # Evita que arrastrando pestañas la "+" termine en el medio.
-        keep_plus_tab_last(self.tabs, self.plus_widget)
+        sync_address_bar(
+            self.tabs, tab, tab.url(), self.address_bar,
+            plus_widget=self.plus_widget,
+            extra_callback=self._refresh_bookmark_icon,
+        )
 
     def _toggle_mute_tab(self, index):
         tab = self.tabs.widget(index)
@@ -385,7 +400,9 @@ class MainWindow(QMainWindow):
             return
         page = tab.page()
         page.setAudioMuted(not page.isAudioMuted())
-        self.update_tab_title(tab, tab.title())
+        update_tab_title(
+            self.tabs, tab, tab.title(), title_limit=22, muted_prefix="🔇 "
+        )
 
     def handle_new_window_request(self, request):
         tab = self.new_tab("about:blank")
@@ -395,32 +412,12 @@ class MainWindow(QMainWindow):
         return self.new_tab("about:blank").page()
 
     # -- barra de direcciones -----------------------------------------------
-    def update_address_bar(self, tab, qurl: QUrl):
-        if tab != self.current_tab():
-            return
-        text = qurl.toString()
-        self.address_bar.setText("" if text == "about:blank" else text)
-        self.address_bar.setCursorPosition(0)
-        self._refresh_bookmark_icon(text)
-
     def navigate_to_address(self, text: str):
-        text = self.address_bar.text().strip()
-        if not text:
-            return
-
-        url = address_to_url(text, search_url="https://www.google.com/search?q={query}")
-        if url is None:
-            return
-        if url.isLocalFile():
-            # Si es uno de nuestros tipos especiales (pdf/zip/rar/7z/epub/
-            # video), BrowserPage.acceptNavigationRequest intercepta esta
-            # misma navegación y llama a handle_special_local_file; para el
-            # resto (carpetas, texto, html, imágenes...) Chromium la
-            # muestra directamente.
-            self.current_tab().setUrl(url)
-            return
-
-        self.current_tab().setUrl(url)
+        navigate_view(
+            self.current_tab,
+            self.address_bar.text().strip(),
+            search_url="https://www.google.com/search?q={query}",
+        )
 
     # -- abrir archivos/carpetas locales --------------------------------------
     def open_local_file(self):
@@ -455,25 +452,18 @@ class MainWindow(QMainWindow):
         Acá decidimos cómo mostrarlo en lugar de dejar que Chromium lo
         trate como una descarga o se quede con el <video> HTML5 sin poder
         reproducir el archivo."""
-        ext = os.path.splitext(local_path)[1].lower()
-        if ext in VIDEO_EXTS:
-            # Igual que el PDF: el video necesita un reproductor propio
-            # (QtMultimedia) porque el <video> HTML5 de QtWebEngine no
-            # siempre trae codecs propietarios (H.264/AAC).
-            add_video_tab(
-                self.tabs, local_path, self, title_limit=22,
-                on_open=lambda tab, title: self.db.add_history(
-                    tab.url().toString(), title
+        local_viewer.handle_special_local_file(
+            tab,
+            local_path,
+            video_extensions=VIDEO_EXTS,
+            video_handler=lambda path: add_video_tab(
+                self.tabs, path, self, title_limit=22,
+                on_open=lambda video_tab, title: self.db.add_history(
+                    video_tab.url().toString(), title
                 ),
-            )
-            return
-        self._open_local_target(tab, local_path)
-
-    def render_folder_view(self, page, folder_path):
-        folder_viewer.render_folder_view(page, folder_path)
-
-    def render_file_view(self, page, file_path):
-        folder_viewer.render_file_view(page, file_path)
+            ),
+            target_handler=self._open_local_target,
+        )
 
     def _open_local_target(self, tab, local_path):
         """Decide cómo mostrar una ruta local que NO es un pdf ni un video.
