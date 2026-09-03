@@ -29,7 +29,9 @@ from offline_games import OfflineGameDownloader
 from web_common import local_viewer
 from web_common import folder_viewer
 from web_common.navbar import BasicNavbar, bind_navigation, save_web_page
-from web_common.navigation import navigate_view, open_plus_tab, sync_address_bar
+from web_common.navigation import (
+    adjust_zoom, navigate_view, open_plus_tab, set_zoom, sync_address_bar,
+)
 from web_common.downloader_handoff import (
     entry_from_url, handoff_url_to_downloader, launch_downloader,
 )
@@ -49,7 +51,6 @@ from web_common.media_tabs import open_video_tab as add_video_tab
 from web_common.video_tab import VideoTab
 from web_common.epub_tab import EpubTab
 from web_common import folder_viewer
-from web_common.zoom import adjust_zoom, set_zoom
 from web_common.web_profiles import build_web_profile
 
 

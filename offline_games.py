@@ -2,10 +2,10 @@ import os
 import shutil
 import ssl
 import tempfile
-import zipfile
 import urllib.request
 
 from PyQt6.QtCore import QThread, pyqtSignal
+from web_common.local_viewer import extract_archive
 
 try:
     import certifi
@@ -78,8 +78,7 @@ class OfflineGameDownloader(QThread):
             shutil.rmtree(extract_dir, ignore_errors=True)
         os.makedirs(extract_dir, exist_ok=True)
 
-        with zipfile.ZipFile(zip_path) as zf:
-            zf.extractall(extract_dir)
+        extract_archive(zip_path, extract_dir)
 
         html_files = []
         for root, _dirs, files in os.walk(extract_dir):
