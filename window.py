@@ -5,7 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PyQt6.QtWidgets import (
-    QMainWindow, QTabWidget, QToolBar, QLineEdit, QFileDialog, QWidget,
+    QMainWindow, QTabWidget, QToolBar, QLineEdit, QWidget,
     QApplication, QMessageBox,
 )
 from PyQt6.QtGui import QAction, QKeySequence, QShortcut
@@ -15,6 +15,7 @@ from PyQt6.QtWebEngineCore import (
 from PyQt6.QtCore import QStandardPaths, QTimer, QUrl, Qt
 
 from config import (
+    ARCHIVES_CACHE_DIR,
     APP_NAME, USERSCRIPTS_DIR, DB_PATH, SESSION_FILE, ZOOM_FILE, PROFILE_STORAGE,
     SIDEBAR_APPS_FILE, GAMES_FILE, DEFAULT_SIDEBAR_APPS, DEFAULT_GAMES,
     GAMES_CACHE_DIR,
@@ -26,11 +27,18 @@ from browser_tab import BrowserTab, VIDEO_EXTS
 from dialogs import ListDialog, DownloadsDialog, SettingsDialog, HistoryDialog
 from new_tab_page import render_new_tab_page
 from offline_games import OfflineGameDownloader
-from web_common import local_viewer
+from web_common.local_navigation import (
+    handle_special_local_file as dispatch_special_local_file,
+    open_local_file as choose_local_file,
+    open_local_folder as choose_local_folder,
+    open_local_target,
+    replace_tab_with_epub,
+)
 from web_common import folder_viewer
 from web_common.navbar import BasicNavbar, bind_navigation, save_web_page
 from web_common.navigation import (
-    adjust_zoom, navigate_view, open_plus_tab, set_zoom, sync_address_bar,
+    active_tab, adjust_zoom, handle_tab_changed, navigate_view, new_tab_page,
+    open_plus_tab, set_zoom, sync_address_bar,
 )
 from web_common.downloader_handoff import (
     entry_from_url, handoff_url_to_downloader, launch_downloader,
@@ -47,8 +55,7 @@ from web_common.tabs import (
     add_plus_tab, configure_tab_widget, prepare_tab_widget,
     close_tab as close_shared_tab, update_tab_icon, update_tab_title,
 )
-from web_common.media_tabs import open_video_tab as add_video_tab
-from web_common.video_tab import VideoTab
+from web_common.video_tab import VideoTab, open_video_tab as add_video_tab
 from web_common.epub_tab import EpubTab
 from web_common import folder_viewer
 from web_common.web_profiles import build_web_profile
@@ -314,7 +321,7 @@ class MainWindow(QMainWindow):
 
     # -- pestañas ---------------------------------------------------------
     def current_tab(self) -> BrowserTab:
-        return self.tabs.currentWidget()
+        return active_tab(self.tabs, self.plus_widget)
 
     def new_tab(self, url=None):
         """Si no se pasa url, se abre la página local de "nueva pestaña"
@@ -386,13 +393,15 @@ class MainWindow(QMainWindow):
         self.session_autosaver.schedule()
 
     def _on_current_tab_changed(self, index):
-        tab = self.tabs.widget(index)
-        if tab is None or tab is self.plus_widget:
-            return
-        sync_address_bar(
-            self.tabs, tab, tab.url(), self.address_bar,
-            plus_widget=self.plus_widget,
-            extra_callback=self._refresh_bookmark_icon,
+        handle_tab_changed(
+            self.tabs,
+            index,
+            self.plus_widget,
+            lambda tab: sync_address_bar(
+                self.tabs, tab, tab.url(), self.address_bar,
+                plus_widget=self.plus_widget,
+                extra_callback=self._refresh_bookmark_icon,
+            ),
         )
 
     def _toggle_mute_tab(self, index):
@@ -406,43 +415,30 @@ class MainWindow(QMainWindow):
         )
 
     def handle_new_window_request(self, request):
-        tab = self.new_tab("about:blank")
-        request.openIn(tab.page())
+        request.openIn(new_tab_page(lambda: self.new_tab("about:blank")))
 
     def handle_new_tab_request(self):
-        return self.new_tab("about:blank").page()
+        return new_tab_page(lambda: self.new_tab("about:blank"))
 
     # -- barra de direcciones -----------------------------------------------
     def navigate_to_address(self, text: str):
         navigate_view(
             self.current_tab,
-            self.address_bar.text().strip(),
+            text.strip(),
             search_url="https://www.google.com/search?q={query}",
         )
 
     # -- abrir archivos/carpetas locales --------------------------------------
     def open_local_file(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Abrir archivo")
-        if path:
-            self.open_path_in_new_tab(path)
+        return choose_local_file(self, self.open_path_in_new_tab)
 
     def open_local_folder(self):
-        path = QFileDialog.getExistingDirectory(self, "Abrir carpeta")
-        if path:
-            self.open_path_in_new_tab(path)
+        return choose_local_folder(self, self.open_path_in_new_tab)
 
     def open_path_in_new_tab(self, path):
         """Abre una ruta local (usada por el diálogo de Descargas y por los
         selectores de archivo/carpeta) en una pestaña nueva."""
         ext = os.path.splitext(path)[1].lower()
-        if ext in VIDEO_EXTS:
-            add_video_tab(
-                self.tabs, path, self, title_limit=22,
-                on_open=lambda tab, title: self.db.add_history(
-                    tab.url().toString(), title
-                ),
-            )
-            return
         tab = self.new_tab("about:blank")
         tab.setUrl(QUrl.fromLocalFile(path))
 
@@ -453,7 +449,7 @@ class MainWindow(QMainWindow):
         Acá decidimos cómo mostrarlo en lugar de dejar que Chromium lo
         trate como una descarga o se quede con el <video> HTML5 sin poder
         reproducir el archivo."""
-        local_viewer.handle_special_local_file(
+        dispatch_special_local_file(
             tab,
             local_path,
             video_extensions=VIDEO_EXTS,
@@ -473,8 +469,8 @@ class MainWindow(QMainWindow):
         los .epub se abren en su primer capítulo. El resto (carpetas,
         .txt, .html, imágenes, etc.) se lo dejamos directamente a
         Chromium."""
-        cache_dir = Path.home() / ".minibrowser" / "archives_cache"
-        local_viewer.open_local_target(
+        cache_dir = Path(ARCHIVES_CACHE_DIR)
+        open_local_target(
             tab,
             local_path,
             cache_dir,
@@ -482,17 +478,18 @@ class MainWindow(QMainWindow):
         )
 
     def _replace_tab_with_epub(self, tab, local_path, cache_dir):
-        epub = EpubTab(
-            tab.page().profile(),
+        return replace_tab_with_epub(
+            tab,
+            self.tabs,
             local_path,
-            cache_dir=cache_dir,
-            parent=self,
+            cache_dir,
+            epub_factory=lambda source_tab, path, cache: EpubTab(
+                source_tab.page().profile(),
+                path,
+                cache_dir=cache,
+                parent=self,
+            ),
         )
-        index = self.tabs.indexOf(tab)
-        self.tabs.removeTab(index)
-        self.tabs.insertTab(index, epub, epub.title())
-        self.tabs.setCurrentIndex(index)
-        tab.deleteLater()
 
     # -- marcadores -----------------------------------------------------------
     def toggle_bookmark(self):

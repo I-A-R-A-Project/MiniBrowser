@@ -1,8 +1,13 @@
 ﻿import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from web_common.paths import app_data_dir
 
 APP_NAME = "MiniBrowser"
 
-BASE_DIR = os.path.join(os.path.expanduser("~"), ".minibrowser")
+BASE_DIR = str(app_data_dir("MiniBrowser"))
 USERSCRIPTS_DIR = os.path.join(BASE_DIR, "userscripts")
 DB_PATH = os.path.join(BASE_DIR, "browser.db")
 SESSION_FILE = os.path.join(BASE_DIR, "session.json")
@@ -37,4 +42,3 @@ for _dir in (BASE_DIR, USERSCRIPTS_DIR, PROFILE_STORAGE, ICONS_DIR, ARCHIVES_CAC
 DEFAULT_SIDEBAR_APPS = []
 
 DEFAULT_GAMES = []
-

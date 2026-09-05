@@ -1,4 +1,4 @@
-# Browser (MiniBrowser)
+# MiniBrowser
 
 `Browser` es una aplicación de escritorio independiente basada en PyQt6 y
 QtWebEngine. Ofrece navegación web con pestañas, una barra lateral de
@@ -59,7 +59,7 @@ esta aplicación en un paquete ni cambiar ese punto de entrada.
 
 ## Datos y configuración
 
-El estado se guarda en `%USERPROFILE%\.minibrowser` (en Windows):
+El estado se guarda en `%APPDATA%\IARA\MiniBrowser`:
 
 | Ruta | Contenido |
 | --- | --- |
@@ -77,7 +77,7 @@ Estas rutas se crean desde `config.py`. No deben incluirse en commits.
 
 ## Userscripts
 
-Los scripts se colocan en `%USERPROFILE%\.minibrowser\userscripts\`:
+Los scripts se colocan en `%APPDATA%\IARA\MiniBrowser\userscripts\`:
 
 ```javascript
 // @name    Mi script
