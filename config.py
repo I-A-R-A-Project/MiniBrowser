@@ -32,8 +32,9 @@ for _dir in (BASE_DIR, USERSCRIPTS_DIR, PROFILE_STORAGE, ICONS_DIR, ARCHIVES_CAC
 
 
 # ---------------------------------------------------------------------------
-# Íconos para las apps ancladas de la barra lateral: el usuario elige el
-# archivo (svg/png/jpg/ico) a mano desde Ajustes -> Apps de barra lateral.
+# Íconos personalizados para las apps ancladas de la barra lateral: el
+# usuario elige el archivo (svg/png/jpg/ico) desde Ajustes -> Apps de barra
+# lateral. Si no hay uno, la interfaz usa el favicon de la página.
 # Se copian a ICONS_DIR y la ruta local se guarda en el item (icon_path).
 # ---------------------------------------------------------------------------
 # Valores por defecto para los archivos JSON (solo se usan la primera vez,

@@ -1,6 +1,6 @@
 # MiniBrowser
 
-`Browser` es una aplicación de escritorio independiente basada en PyQt6 y
+MiniBrowser es una aplicación de escritorio independiente basada en PyQt6 y
 QtWebEngine. Ofrece navegación web con pestañas, una barra lateral de
 aplicaciones, sesiones persistentes y herramientas para trabajar con archivos
 locales.
@@ -13,7 +13,7 @@ locales.
 - Navegación atrás, adelante, recarga, recarga completa y barra de
   direcciones con búsqueda.
 - Sesión persistente de pestañas y perfil aislado de QtWebEngine.
-- Historial y marcadores almacenados en SQLite.
+- Historial compartido y marcadores almacenados en SQLite.
 - Panel lateral para aplicaciones y juegos configurables.
 - Userscripts locales con metadatos `@name`, `@match` y `@run-at`.
 - Descargas enviadas al Downloader cuando corresponde y panel de estado de
@@ -63,7 +63,7 @@ El estado se guarda en `%APPDATA%\IARA\MiniBrowser`:
 
 | Ruta | Contenido |
 | --- | --- |
-| `browser.db` | Historial y marcadores |
+| `browser.db` | Historial compartido y marcadores |
 | `profile\` | Cookies, almacenamiento y caché persistente de QtWebEngine |
 | `session.json` | Pestañas restaurables |
 | `userscripts\` | Userscripts locales |
@@ -92,15 +92,16 @@ El navegador genera un ejemplo si la carpeta todavía no contiene uno.
 - `main.py`: punto de entrada de la aplicación.
 - `window.py`: ventana principal, pestañas, barra lateral, sesión y acciones.
 - `browser_tab.py`: pestaña web y coordinación con handlers locales.
-- `database.py`: historial y marcadores SQLite.
-- `dialogs.py`: diálogos de historial, marcadores, descargas y ajustes.
+- `database.py`: persistencia SQLite de marcadores.
+- `dialogs.py`: diálogos de marcadores, descargas y ajustes.
 - `downloads.py`: gestión de descargas de QtWebEngine.
 - `local_viewer.py`: extracción y renderizado de contenido local.
 - `offline_games.py`: descarga y extracción de juegos offline.
 - `new_tab_page.py`: página HTML de nueva pestaña.
 - `userscripts.py`: carga e inyección de userscripts.
-- `web_common\`: pestañas, perfiles, visores, sesiones y utilidades compartidas
-  con IA y ArtBrowser.
+- `web_common\`: pestañas, perfiles, visores, sesiones, historial y utilidades
+  compartidas con IA y ArtBrowser. El historial se implementa en
+  `web_common\history.py` mediante `HistoryStore` y `HistoryDialog`.
 
 Los cambios en `web_common` pueden afectar a las tres aplicaciones; los
 cambios propios de Browser deben mantenerse compatibles con su ejecución

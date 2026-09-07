@@ -42,4 +42,4 @@ class BrowserTab(UnifiedWebTab):
             url = self.url().toString()
             title = self.title() or url
             if url and url != "about:blank":
-                self.main_window.db.add_history(url, title, self.session_id)
+                self.main_window.history.add_history(url, title, self.session_id)

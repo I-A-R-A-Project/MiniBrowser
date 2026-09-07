@@ -24,7 +24,7 @@ from database import Database
 from userscripts import UserScriptManager
 from downloads import DownloadManager
 from browser_tab import BrowserTab, VIDEO_EXTS
-from dialogs import ListDialog, DownloadsDialog, SettingsDialog, HistoryDialog
+from dialogs import ListDialog, DownloadsDialog, SettingsDialog
 from new_tab_page import render_new_tab_page
 from offline_games import OfflineGameDownloader
 from web_common.local_navigation import (
@@ -44,6 +44,7 @@ from web_common.downloader_handoff import (
     entry_from_url, handoff_url_to_downloader, launch_downloader,
 )
 from web_common.json_store import SidebarAppsStore, GamesStore
+from web_common.history import HistoryDialog, HistoryStore
 from web_common.session import (
     load_tab_session,
     restore_tab_metadata,
@@ -69,6 +70,7 @@ class MainWindow(QMainWindow):
 
         # Historial y marcadores en sqlite.
         self.db = Database(DB_PATH)
+        self.history = HistoryStore(DB_PATH)
         # Apps de barra lateral y juegos en archivos JSON (fácil de
         # editar/exportar/importar).
         self.sidebar_apps_store = SidebarAppsStore(SIDEBAR_APPS_FILE, DEFAULT_SIDEBAR_APPS)
@@ -105,16 +107,22 @@ class MainWindow(QMainWindow):
 
         # Riel de íconos: FIJO, docked, parte del layout normal (no flota).
         # Cada app puede tener su propio ícono (elegido por el usuario desde
-        # Ajustes -> Apps de barra lateral); si no tiene, se muestran las
-        # iniciales del nombre.
+        # Ajustes -> Apps de barra lateral); si no tiene, se usa el favicon
+        # de la página y, mientras carga, las iniciales del nombre.
         self.rail = SidebarRail()
         self.rail.on_toggle = self._on_sidebar_app_clicked
+        self.rail.on_favicon_changed = (
+            lambda app_id, favicon: self.sidebar_apps_store.update_item(
+                app_id, favicon=favicon
+            )
+        )
         self.rail.rebuild(self.sidebar_apps_store.all())
 
         # Panel de la app anclada: esto SÍ es overlay, flota por encima de
         # las pestañas sin modificar su tamaño.
         self.app_panel = AppPanelOverlay(self.profile)
         self.app_panel.on_new_window_request = self.handle_new_window_request
+        self.app_panel.on_app_icon_changed = self.rail.set_favicon
 
         container = SidebarContainer(self.rail, self.tabs, self.app_panel)
         self.setCentralWidget(container)
@@ -197,6 +205,7 @@ class MainWindow(QMainWindow):
             navbar,
             self.current_tab,
             address_handler=self.navigate_to_address,
+            history_handler=self.show_history,
             save_handler=lambda: save_web_page(
                 self.current_tab(),
                 target_dir=Path(__file__).resolve().parent / "saved_pages",
@@ -227,11 +236,6 @@ class MainWindow(QMainWindow):
         games_action.setToolTip("Juegos")
         games_action.triggered.connect(self.show_games)
         navbar.addAction(games_action)
-
-        history_action = QAction("🕖", navbar)
-        history_action.setToolTip("Historial")
-        history_action.triggered.connect(self.show_history)
-        navbar.addAction(history_action)
 
         downloads_action = QAction("📥", navbar)
         downloads_action.setToolTip("Descargas")
@@ -455,7 +459,7 @@ class MainWindow(QMainWindow):
             video_extensions=VIDEO_EXTS,
             video_handler=lambda path: add_video_tab(
                 self.tabs, path, self, title_limit=22,
-                on_open=lambda video_tab, title: self.db.add_history(
+                on_open=lambda video_tab, title: self.history.add_history(
                     video_tab.url().toString(), title
                 ),
             ),
@@ -580,7 +584,7 @@ class MainWindow(QMainWindow):
 
     # -- historial --------------------------------------------------------------
     def show_history(self):
-        dialog = HistoryDialog(self.db, on_open=lambda url: self.new_tab(url))
+        dialog = HistoryDialog(self.history, on_open=lambda url: self.new_tab(url))
         dialog.exec()
 
     # -- descargas --------------------------------------------------------------
