@@ -55,6 +55,7 @@ from web_common.sidebar import SidebarRail, AppPanelOverlay, SidebarContainer
 from web_common.tabs import (
     add_plus_tab, configure_tab_widget, prepare_tab_widget,
     close_tab as close_shared_tab, update_tab_icon, update_tab_title,
+    TabbedPopupWindow,
 )
 from web_common.video_tab import VideoTab, open_video_tab as add_video_tab
 from web_common.epub_tab import EpubTab
@@ -418,11 +419,39 @@ class MainWindow(QMainWindow):
             self.tabs, tab, tab.title(), title_limit=22, muted_prefix="🔇 "
         )
 
-    def handle_new_window_request(self, request):
+    def handle_new_window_request(self, request=None):
+        if not hasattr(request, "openIn"):
+            return new_tab_page(lambda: self.new_tab("about:blank"))
         request.openIn(new_tab_page(lambda: self.new_tab("about:blank")))
 
     def handle_new_tab_request(self):
         return new_tab_page(lambda: self.new_tab("about:blank"))
+
+    def open_instance_popup(self, url=""):
+        """Abre una ventana con pestañas para una nueva ejecución del navegador."""
+        window = TabbedPopupWindow(
+            self.profile,
+            folder_view_handler=folder_viewer.render_folder_view,
+            file_view_handler=folder_viewer.render_file_view,
+            special_local_handler=self.handle_special_local_file,
+            new_tab_content_handler=lambda: render_new_tab_page(
+                self.db.get_bookmarks()
+            ),
+        )
+        window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        if url:
+            window.current_view().setUrl(QUrl(url))
+        self._popup_windows = getattr(self, "_popup_windows", [])
+        self._popup_windows.append(window)
+        window.destroyed.connect(
+            lambda _obj=None, item=window: (
+                self._popup_windows.remove(item)
+                if item in self._popup_windows else None
+            )
+        )
+        window.show()
+        window.raise_()
+        window.activateWindow()
 
     # -- barra de direcciones -----------------------------------------------
     def navigate_to_address(self, text: str):

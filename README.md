@@ -100,11 +100,11 @@ El navegador genera un ejemplo si la carpeta todavía no contiene uno.
 - `new_tab_page.py`: página HTML de nueva pestaña.
 - `userscripts.py`: carga e inyección de userscripts.
 - `web_common\`: pestañas, perfiles, visores, sesiones, historial y utilidades
-  compartidas con IA y ArtBrowser. El historial se implementa en
+  compartidas con WebAgent. El historial se implementa en
   `web_common\history.py` mediante `HistoryStore` y `HistoryDialog`.
 
-Los cambios en `web_common` pueden afectar a las tres aplicaciones; los
-cambios propios de Browser deben mantenerse compatibles con su ejecución
+Los cambios en `web_common` pueden afectar a MiniBrowser y WebAgent; los
+cambios propios de MiniBrowser deben mantenerse compatibles con su ejecución
 directa mediante `python main.py`.
 
 ## Licencia
