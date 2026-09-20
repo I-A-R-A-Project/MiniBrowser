@@ -207,6 +207,7 @@ class MainWindow(QMainWindow):
             self.current_tab,
             address_handler=self.navigate_to_address,
             history_handler=self.show_history,
+            sidebar_handler=self.toggle_sidebar_visibility,
             save_handler=lambda: save_web_page(
                 self.current_tab(),
                 target_dir=Path(__file__).resolve().parent / "saved_pages",
@@ -242,13 +243,6 @@ class MainWindow(QMainWindow):
         downloads_action.setToolTip("Descargas")
         downloads_action.triggered.connect(self.show_downloads)
         navbar.addAction(downloads_action)
-
-        sidebar_toggle = QAction("🚀​", navbar)
-        sidebar_toggle.setToolTip("Mostrar/ocultar barra lateral")
-        sidebar_toggle.setCheckable(True)
-        sidebar_toggle.setChecked(True)
-        sidebar_toggle.toggled.connect(self.toggle_sidebar_visibility)
-        navbar.addAction(sidebar_toggle)
 
         settings_action = QAction("⚙", navbar)
         settings_action.setToolTip("Ajustes y personalizaciones")
@@ -455,11 +449,7 @@ class MainWindow(QMainWindow):
 
     # -- barra de direcciones -----------------------------------------------
     def navigate_to_address(self, text: str):
-        navigate_view(
-            self.current_tab,
-            text.strip(),
-            search_url="https://www.google.com/search?q={query}",
-        )
+        navigate_view(self.current_tab, text.strip())
 
     # -- abrir archivos/carpetas locales --------------------------------------
     def open_local_file(self):

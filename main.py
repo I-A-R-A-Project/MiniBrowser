@@ -10,10 +10,13 @@ from window import MainWindow
 from web_common.instance import acquire_browser_instance
 
 
+INSTANCE_SERVER_NAME = "IARA-MiniBrowser-Instance-v1"
+
+
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
-    instance_server = acquire_browser_instance()
+    instance_server = acquire_browser_instance(server_name=INSTANCE_SERVER_NAME)
     if instance_server is None:
         return
 
