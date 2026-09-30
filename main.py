@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import QApplication
 
 from config import APP_NAME
 from window import MainWindow
-from web_common.instance import acquire_browser_instance
+from web_common.runtime.instance import acquire_browser_instance
 
 
 INSTANCE_SERVER_NAME = "IARA-MiniBrowser-Instance-v1"

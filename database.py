@@ -8,7 +8,7 @@ class Database:
     archivos JSON (ver json_store.py) para que sean fáciles de editar a
     mano, exportar e importar.
 
-    El historial se gestiona en web_common.history para que las aplicaciones
+    El historial se gestiona en web_common.storage.history para que las aplicaciones
     web puedan compartirlo."""
 
     def __init__(self, path):

@@ -1,12 +1,12 @@
 ﻿from PyQt6.QtCore import QUrl
 
 from userscripts import UserScriptManager
-from web_common import folder_viewer
-from web_common.navigation import sync_address_bar
-from web_common.tabs import (
+from web_common.nav.navigation import sync_address_bar
+from web_common.browser.tabs import (
     SPECIAL_LOCAL_EXTS, VIDEO_EXTS, UnifiedWebEnginePage, UnifiedWebTab,
     update_tab_icon, update_tab_title,
 )
+from web_common.viewers import folder_viewer
 
 BrowserPage = UnifiedWebEnginePage
 

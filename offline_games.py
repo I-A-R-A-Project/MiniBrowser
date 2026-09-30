@@ -5,7 +5,7 @@ import tempfile
 import urllib.request
 
 from PyQt6.QtCore import QThread, pyqtSignal
-from web_common.local_viewer import extract_archive
+from web_common.viewers.local_viewer import extract_archive
 
 try:
     import certifi
